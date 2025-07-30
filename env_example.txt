@@ -1,0 +1,19 @@
+# SharkByte Configuration
+# Copy this file to .env and update the values
+
+# OpenAI API Configuration
+OPENAI_API_KEY=your_openai_api_key_here
+OPENAI_MODEL=gpt-4
+
+# Analysis Configuration
+SIMILARITY_THRESHOLD=0.8
+MAX_PATTERNS=100
+
+# Output Configuration
+DEFAULT_OUTPUT_FILE=sharkbyte_results.json
+GENERATE_VISUALIZATIONS=true
+GENERATE_HTML_REPORT=true
+
+# Performance Configuration
+MAX_PACKETS_PER_FILE=10000
+VERBOSE_OUTPUT=false 

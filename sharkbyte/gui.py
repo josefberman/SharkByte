@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Dict, Any, List, Optional
 import threading
 import time
+from dotenv import load_dotenv
 
 # Try to import gradio, but handle the case where it's not available
 try:
@@ -28,7 +29,7 @@ from sharkbyte.analyzer import PCAPAnalyzer
 from sharkbyte.pattern_detector import PatternDetector
 from sharkbyte.llm_analyzer import LLMAnalyzer
 from sharkbyte.visualizer import Visualizer
-from sharkbyte.utils import find_pcap_files, save_results, load_results
+from sharkbyte.utils import find_pcap_files, save_results, load_results, ensure_event_loop
 
 
 class SharkByteGUI:
@@ -68,7 +69,13 @@ class SharkByteGUI:
             Dictionary containing analysis results and UI updates
         """
         try:
-            # Set OpenAI API key if provided
+            # Handle async issues in threaded environment at the start
+            ensure_event_loop()
+            
+            # Load environment variables from .env file
+            load_dotenv()
+            
+            # Set OpenAI API key if provided (GUI input takes precedence over .env file)
             if openai_api_key and use_llm:
                 os.environ["OPENAI_API_KEY"] = openai_api_key
             
@@ -97,14 +104,34 @@ class SharkByteGUI:
             
             # Step 2: Analyze PCAP files
             progress(0.3, desc="Analyzing PCAP files...")
-            analyzer = PCAPAnalyzer()
-            self.analysis_results = analyzer.analyze_multiple_files(pcap_files)
+            try:
+                analyzer = PCAPAnalyzer()
+                self.analysis_results = analyzer.analyze_multiple_files(pcap_files)
+            except RuntimeError as e:
+                if "event loop" in str(e).lower():
+                    print("⚠️  Async event loop issue detected during PCAP analysis.")
+                    print("Retrying with event loop fix...")
+                    ensure_event_loop()
+                    analyzer = PCAPAnalyzer()
+                    self.analysis_results = analyzer.analyze_multiple_files(pcap_files)
+                else:
+                    raise e
             
             progress(0.5, desc="Detecting patterns...")
             
             # Step 3: Detect patterns
-            pattern_detector = PatternDetector(similarity_threshold=similarity_threshold)
-            self.pattern_results = pattern_detector.detect_patterns(self.analysis_results)
+            try:
+                pattern_detector = PatternDetector(similarity_threshold=similarity_threshold)
+                self.pattern_results = pattern_detector.detect_patterns(self.analysis_results)
+            except RuntimeError as e:
+                if "event loop" in str(e).lower():
+                    print("⚠️  Async event loop issue detected during pattern detection.")
+                    print("Retrying with event loop fix...")
+                    ensure_event_loop()
+                    pattern_detector = PatternDetector(similarity_threshold=similarity_threshold)
+                    self.pattern_results = pattern_detector.detect_patterns(self.analysis_results)
+                else:
+                    raise e
             
             progress(0.7, desc="Running LLM analysis...")
             
@@ -112,9 +139,18 @@ class SharkByteGUI:
             self.llm_analysis = {}
             if use_llm and openai_api_key:
                 try:
-                    llm_analyzer = LLMAnalyzer(model=model)
-                    self.llm_analysis = llm_analyzer.analyze_patterns(self.pattern_results)
+                    # Try to initialize LLM analyzer with better error handling
+                    try:
+                        llm_analyzer = LLMAnalyzer(model=model)
+                        self.llm_analysis = llm_analyzer.analyze_patterns(self.pattern_results)
+                    except RuntimeError as e:
+                        if "event loop" in str(e).lower():
+                            print("⚠️  Async event loop issue detected. Skipping LLM analysis.")
+                            self.llm_analysis = {"error": "Async event loop issue - LLM analysis skipped"}
+                        else:
+                            raise e
                 except Exception as e:
+                    print(f"LLM Analysis error: {str(e)}")
                     self.llm_analysis = {"error": str(e)}
             
             progress(0.8, desc="Generating visualizations...")
@@ -173,9 +209,12 @@ class SharkByteGUI:
             }
             
         except Exception as e:
+            import traceback
+            error_details = f"Error during analysis: {str(e)}\n\nTraceback:\n{traceback.format_exc()}"
+            print(error_details)
             return {
                 "status": f"Error during analysis: {str(e)}",
-                "results": "",
+                "results": error_details,
                 "visualizations": None,
                 "html_report": None
             }

@@ -10,7 +10,8 @@ from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
 from sklearn.cluster import DBSCAN
 import re
-from .utils import calculate_similarity, normalize_value
+import asyncio
+from .utils import calculate_similarity, normalize_value, ensure_event_loop
 
 
 class PatternDetector:
@@ -34,6 +35,9 @@ class PatternDetector:
             Dictionary containing detected patterns
         """
         print("Detecting patterns across PCAP files...")
+        
+        # Handle async issues in threaded environment
+        ensure_event_loop()
         
         # Extract key-value pairs from all files
         all_key_values = self._extract_all_key_values(analysis_results)

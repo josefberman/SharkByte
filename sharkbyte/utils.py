@@ -5,6 +5,7 @@ Utility functions for SharkByte PCAP analyzer.
 import os
 import json
 import hashlib
+import asyncio
 from typing import Dict, List, Any, Tuple
 from pathlib import Path
 import pandas as pd
@@ -208,4 +209,18 @@ def format_bytes(bytes_value: int) -> str:
         if bytes_value < 1024.0:
             return f"{bytes_value:.1f} {unit}"
         bytes_value /= 1024.0
-    return f"{bytes_value:.1f} TB" 
+    return f"{bytes_value:.1f} TB"
+
+
+def ensure_event_loop():
+    """
+    Ensure an event loop is available in the current thread.
+    This is needed for async operations in threaded environments.
+    """
+    try:
+        loop = asyncio.get_event_loop()
+    except RuntimeError:
+        # No event loop in current thread, create a new one
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+    return loop 

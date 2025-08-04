@@ -6,7 +6,9 @@ import os
 import json
 from typing import Dict, List, Any, Optional
 from openai import OpenAI
-from .utils import save_results, load_results
+import asyncio
+from dotenv import load_dotenv
+from .utils import save_results, load_results, ensure_event_loop
 
 
 class LLMAnalyzer:
@@ -16,7 +18,15 @@ class LLMAnalyzer:
     
     def __init__(self, api_key: Optional[str] = None, model: str = "gpt-4"):
         self.model = model
-        self.client = OpenAI(api_key=api_key or os.getenv("OPENAI_API_KEY"))
+        
+        # Load environment variables from .env file
+        load_dotenv()
+        
+        # Initialize with sync client to avoid async issues in threaded environment
+        api_key = api_key or os.getenv("OPENAI_API_KEY")
+        if not api_key:
+            raise ValueError("OpenAI API key is required. Please set OPENAI_API_KEY in your .env file or pass it as a parameter.")
+        self.client = OpenAI(api_key=api_key)
         
     def analyze_patterns(self, pattern_results: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -287,6 +297,10 @@ Focus on the security implications and potential threat hunting opportunities.
             LLM response
         """
         try:
+            # Handle async issues in threaded environment
+            ensure_event_loop()
+            
+            # Use sync client to avoid async issues in threaded environment
             response = self.client.chat.completions.create(
                 model=self.model,
                 messages=[

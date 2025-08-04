@@ -8,9 +8,13 @@ Simple script to launch the SharkByte web interface.
 import argparse
 import sys
 import os
+from dotenv import load_dotenv
 
 # Add the current directory to Python path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+# Load environment variables from .env file
+load_dotenv()
 
 from sharkbyte.gui import launch_gui
 

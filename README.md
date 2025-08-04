@@ -27,7 +27,7 @@ pip install -r requirements.txt
 
 3. Set up environment variables:
 ```bash
-cp .env.example .env
+cp env_example.txt .env
 # Edit .env and add your OpenAI API key
 ```
 
@@ -84,6 +84,8 @@ SIMILARITY_THRESHOLD=0.8
 MAX_PATTERNS=100
 ```
 
+**Important**: Make sure your `.env` file is in the root directory of the project and contains your actual OpenAI API key.
+
 ## Output
 
 The analyzer generates:
@@ -91,6 +93,22 @@ The analyzer generates:
 - CSV file with statistical data
 - HTML report with visualizations
 - Console output with key findings
+
+## Troubleshooting
+
+### GUI Async Error
+If you encounter the error "There is no current event loop in thread 'AnyIO worker thread'" when using the GUI:
+
+1. **This issue has been fixed** in the latest version
+2. If you still encounter it, try:
+   - Restart the GUI application
+   - Ensure you have the latest version of the dependencies
+   - Check that your OpenAI API key is valid
+
+### Common Issues
+- **No PCAP files found**: Ensure the folder path is correct and contains `.pcap` or `.pcapng` files
+- **LLM analysis fails**: Verify your OpenAI API key is set correctly
+- **Memory issues**: For large PCAP files, the analyzer limits packet processing to prevent memory issues
 
 ## Project Structure
 

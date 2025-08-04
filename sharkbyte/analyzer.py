@@ -7,12 +7,14 @@ import pandas as pd
 from typing import Dict, List, Any, Optional
 from collections import defaultdict
 import json
+import asyncio
 from .utils import (
     normalize_value, 
     extract_key_value_pairs, 
     calculate_hash,
     get_file_size_mb,
-    format_bytes
+    format_bytes,
+    ensure_event_loop
 )
 
 
@@ -39,6 +41,9 @@ class PCAPAnalyzer:
         print(f"Analyzing PCAP file: {file_path}")
         
         try:
+            # Handle async issues in threaded environment
+            ensure_event_loop()
+            
             # Open PCAP file
             cap = pyshark.FileCapture(file_path)
             
@@ -188,6 +193,9 @@ class PCAPAnalyzer:
         Returns:
             Dictionary containing analysis results for all files
         """
+        # Handle async issues in threaded environment
+        ensure_event_loop()
+        
         results = {
             'files': {},
             'summary': {

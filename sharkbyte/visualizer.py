@@ -12,6 +12,7 @@ from pathlib import Path
 import plotly.graph_objects as go
 import plotly.express as px
 from plotly.subplots import make_subplots
+import re
 
 
 class Visualizer:
@@ -28,6 +29,82 @@ class Visualizer:
         sns.set_palette("husl")
         plt.rcParams['figure.figsize'] = (12, 8)
         plt.rcParams['font.size'] = 10
+    
+    def _truncate_text(self, text: str, max_length: int = 30) -> str:
+        """
+        Truncate text to a maximum length with ellipsis.
+        
+        Args:
+            text: Text to truncate
+            max_length: Maximum length before truncation
+            
+        Returns:
+            Truncated text
+        """
+        if len(text) <= max_length:
+            return text
+        return text[:max_length-3] + "..."
+    
+    def _format_key_name(self, key: str) -> str:
+        """
+        Format key names for better visualization.
+        
+        Args:
+            key: Original key name
+            
+        Returns:
+            Formatted key name
+        """
+        # Remove common prefixes
+        key = re.sub(r'^[a-z]+\.[a-z]+\.', '', key)
+        
+        # Replace underscores and dots with spaces
+        key = key.replace('_', ' ').replace('.', ' ')
+        
+        # Capitalize words
+        key = ' '.join(word.capitalize() for word in key.split())
+        
+        # Truncate if still too long
+        return self._truncate_text(key, 25)
+    
+    def _format_value(self, value: str) -> str:
+        """
+        Format values for better visualization.
+        
+        Args:
+            value: Original value
+            
+        Returns:
+            Formatted value
+        """
+        # Handle different value types
+        if not value or value == "null":
+            return "N/A"
+        
+        # Truncate long values
+        if len(value) > 20:
+            return self._truncate_text(value, 20)
+        
+        return value
+    
+    def _create_key_mapping(self, keys: List[str]) -> Dict[str, str]:
+        """
+        Create a mapping from original keys to display names.
+        
+        Args:
+            keys: List of original keys
+            
+        Returns:
+            Dictionary mapping original keys to display names
+        """
+        mapping = {}
+        for i, key in enumerate(keys):
+            display_name = self._format_key_name(key)
+            # If display name is not unique, add index
+            if display_name in mapping.values():
+                display_name = f"{display_name} ({i+1})"
+            mapping[key] = display_name
+        return mapping
         
     def create_analysis_visualizations(self, analysis_results: Dict[str, Any], 
                                      pattern_results: Dict[str, Any],
@@ -92,17 +169,28 @@ class Visualizer:
     def _create_pattern_visualizations(self, pattern_results: Dict[str, Any], output_dir: str):
         """Create visualizations for pattern analysis."""
         
-        # Common keys heatmap
+        # Common keys visualization
         common_keys = pattern_results.get('common_keys', [])
         if common_keys:
-            # Create a simple visualization of common keys
-            plt.figure(figsize=(12, 6))
-            key_lengths = [len(key) for key in common_keys]
-            plt.bar(range(len(common_keys)), key_lengths)
-            plt.title('Common Keys Found Across Files')
-            plt.xlabel('Key Index')
-            plt.ylabel('Key Length')
-            plt.xticks(range(len(common_keys)), [f"Key {i+1}" for i in range(len(common_keys))])
+            # Create a better visualization of common keys
+            key_mapping = self._create_key_mapping(common_keys[:15])  # Limit to top 15 keys
+            display_names = list(key_mapping.values())
+            
+            plt.figure(figsize=(14, 8))
+            y_pos = np.arange(len(display_names))
+            
+            # Create horizontal bar chart for better readability
+            plt.barh(y_pos, [1] * len(display_names), color='skyblue', alpha=0.7)
+            plt.yticks(y_pos, display_names)
+            plt.xlabel('Presence')
+            plt.title('Common Keys Found Across Files', fontsize=14, fontweight='bold')
+            plt.gca().invert_yaxis()  # Invert to show most important at top
+            
+            # Add count annotations
+            for i, (original_key, display_name) in enumerate(key_mapping.items()):
+                plt.text(0.5, i, f"'{original_key}'", 
+                        ha='center', va='center', fontsize=8, alpha=0.7)
+            
             plt.tight_layout()
             plt.savefig(f"{output_dir}/common_keys_analysis.png", dpi=300, bbox_inches='tight')
             plt.close()
@@ -121,29 +209,96 @@ class Visualizer:
                 })
             
             if pattern_stats:
-                df = pd.DataFrame(pattern_stats)
-                plt.figure(figsize=(12, 8))
+                # Sort by total values and take top 10
+                pattern_stats.sort(key=lambda x: x['total_values'], reverse=True)
+                top_patterns = pattern_stats[:10]
                 
-                # Create subplots
-                fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(12, 10))
+                df = pd.DataFrame(top_patterns)
+                key_mapping = self._create_key_mapping(df['key'].tolist())
+                df['display_name'] = df['key'].map(key_mapping)
+                
+                # Create subplots with better formatting
+                fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(14, 12))
                 
                 # Top plot: Total values vs Unique values
-                ax1.scatter(df['total_values'], df['unique_values'], alpha=0.7)
-                ax1.set_xlabel('Total Values')
-                ax1.set_ylabel('Unique Values')
-                ax1.set_title('Value Diversity Analysis')
+                scatter = ax1.scatter(df['total_values'], df['unique_values'], 
+                                    alpha=0.7, s=100, c=df['diversity_ratio'], cmap='viridis')
+                ax1.set_xlabel('Total Values', fontsize=12)
+                ax1.set_ylabel('Unique Values', fontsize=12)
+                ax1.set_title('Value Diversity Analysis', fontsize=14, fontweight='bold')
                 
-                # Bottom plot: Diversity ratio
-                ax2.bar(range(len(df)), df['diversity_ratio'])
-                ax2.set_xlabel('Key Index')
-                ax2.set_ylabel('Diversity Ratio (Unique/Total)')
-                ax2.set_title('Value Diversity Ratio by Key')
+                # Add colorbar
+                cbar = plt.colorbar(scatter, ax=ax1)
+                cbar.set_label('Diversity Ratio', fontsize=10)
+                
+                # Add annotations for key points
+                for i, row in df.iterrows():
+                    if row['total_values'] > df['total_values'].quantile(0.75):
+                        ax1.annotate(row['display_name'], 
+                                   (row['total_values'], row['unique_values']),
+                                   xytext=(5, 5), textcoords='offset points',
+                                   fontsize=8, alpha=0.8)
+                
+                # Bottom plot: Diversity ratio with formatted labels
+                bars = ax2.bar(range(len(df)), df['diversity_ratio'], 
+                              color='lightcoral', alpha=0.7)
+                ax2.set_xlabel('Keys', fontsize=12)
+                ax2.set_ylabel('Diversity Ratio (Unique/Total)', fontsize=12)
+                ax2.set_title('Value Diversity Ratio by Key', fontsize=14, fontweight='bold')
                 ax2.set_xticks(range(len(df)))
-                ax2.set_xticklabels([f"Key {i+1}" for i in range(len(df))], rotation=45)
+                ax2.set_xticklabels(df['display_name'], rotation=45, ha='right', fontsize=10)
+                
+                # Add value labels on bars
+                for i, bar in enumerate(bars):
+                    height = bar.get_height()
+                    ax2.text(bar.get_x() + bar.get_width()/2., height + 0.01,
+                            f'{height:.2f}', ha='center', va='bottom', fontsize=8)
                 
                 plt.tight_layout()
                 plt.savefig(f"{output_dir}/value_pattern_analysis.png", dpi=300, bbox_inches='tight')
                 plt.close()
+                
+        # Hidden identifiers visualization
+        hidden_identifiers = pattern_results.get('hidden_identifiers', [])
+        if hidden_identifiers:
+            # Create a visualization of hidden identifiers
+            plt.figure(figsize=(14, 8))
+            
+            # Sort by confidence and take top 10
+            sorted_identifiers = sorted(hidden_identifiers, 
+                                       key=lambda x: x.get('confidence', 0), reverse=True)[:10]
+            
+            identifiers = []
+            confidences = []
+            display_values = []
+            
+            for identifier in sorted_identifiers:
+                value = identifier.get('value', 'N/A')
+                confidence = identifier.get('confidence', 0)
+                files_count = len(identifier.get('files', []))
+                
+                identifiers.append(f"ID {len(identifiers)+1}")
+                confidences.append(confidence)
+                display_values.append(self._format_value(value))
+            
+            # Create horizontal bar chart
+            y_pos = np.arange(len(identifiers))
+            bars = plt.barh(y_pos, confidences, color='gold', alpha=0.7)
+            
+            plt.yticks(y_pos, identifiers)
+            plt.xlabel('Confidence Score', fontsize=12)
+            plt.title('Hidden Identifiers by Confidence', fontsize=14, fontweight='bold')
+            plt.gca().invert_yaxis()
+            
+            # Add value annotations
+            for i, (bar, value) in enumerate(zip(bars, display_values)):
+                width = bar.get_width()
+                plt.text(width + 0.01, bar.get_y() + bar.get_height()/2,
+                        f"'{value}'", ha='left', va='center', fontsize=9, alpha=0.8)
+            
+            plt.tight_layout()
+            plt.savefig(f"{output_dir}/hidden_identifiers.png", dpi=300, bbox_inches='tight')
+            plt.close()
     
     def _create_network_visualizations(self, analysis_results: Dict[str, Any], output_dir: str):
         """Create network-specific visualizations."""
@@ -217,8 +372,10 @@ class Visualizer:
                 edges.append((key1, key2, similarity))
             
             if nodes and edges:
-                # Create a simple network visualization
+                # Create formatted node names
                 node_list = list(nodes)
+                key_mapping = self._create_key_mapping(node_list)
+                display_names = [key_mapping[node] for node in node_list]
                 node_indices = {node: i for i, node in enumerate(node_list)}
                 
                 # Create edge traces
@@ -236,30 +393,33 @@ class Visualizer:
                 # Create the network plot
                 fig = go.Figure()
                 
-                # Add edges
+                # Add edges with hover information
                 fig.add_trace(go.Scatter(
                     x=edge_x, y=edge_y,
-                    line=dict(width=0.5, color='#888'),
-                    hoverinfo='none',
+                    line=dict(width=2, color='#888'),
+                    hoverinfo='text',
+                    hovertext=edge_text,
                     mode='lines'))
                 
-                # Add nodes
+                # Add nodes with formatted labels
                 fig.add_trace(go.Scatter(
                     x=[node_indices[node] for node in node_list],
                     y=[0] * len(node_list),
                     mode='markers+text',
-                    marker=dict(size=20, color='lightblue'),
-                    text=node_list,
+                    marker=dict(size=25, color='lightblue', line=dict(width=2, color='darkblue')),
+                    text=display_names,
                     textposition="bottom center",
-                    hoverinfo='text'))
+                    hoverinfo='text',
+                    hovertext=[f"Original: {node}" for node in node_list]))
                 
                 fig.update_layout(
                     title='Similar Pattern Network',
                     showlegend=False,
                     hovermode='closest',
-                    margin=dict(b=20,l=5,r=5,t=40),
+                    margin=dict(b=50,l=5,r=5,t=40),
                     xaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
-                    yaxis=dict(showgrid=False, zeroline=False, showticklabels=False))
+                    yaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
+                    plot_bgcolor='white')
                 
                 fig.write_html(f"{output_dir}/similar_patterns_network.html")
         
@@ -269,6 +429,10 @@ class Visualizer:
             # Create a heatmap of value patterns
             keys = list(value_patterns.keys())[:10]  # Limit to first 10 keys
             if keys:
+                # Create formatted key names
+                key_mapping = self._create_key_mapping(keys)
+                display_names = [key_mapping[key] for key in keys]
+                
                 # Create a matrix of value counts
                 pattern_matrix = []
                 for key in keys:
@@ -285,14 +449,28 @@ class Visualizer:
                 if pattern_matrix:
                     fig = go.Figure(data=go.Heatmap(
                         z=pattern_matrix,
-                        x=['Total', 'Unique', 'Numeric', 'Hex', 'IP'],
-                        y=keys,
-                        colorscale='Viridis'))
+                        x=['Total Values', 'Unique Values', 'Numeric Patterns', 'Hex Patterns', 'IP Patterns'],
+                        y=display_names,
+                        colorscale='Viridis',
+                        hoverongaps=False))
+                    
+                    # Add hover text with original key names
+                    hover_text = []
+                    for i, key in enumerate(keys):
+                        row = []
+                        for j, col in enumerate(['Total', 'Unique', 'Numeric', 'Hex', 'IP']):
+                            value = pattern_matrix[i][j]
+                            row.append(f"Key: {key}<br>{col}: {value}")
+                        hover_text.append(row)
+                    
+                    fig.update_traces(hovertemplate='%{text}<extra></extra>', text=hover_text)
                     
                     fig.update_layout(
                         title='Value Pattern Analysis Heatmap',
                         xaxis_title='Pattern Type',
-                        yaxis_title='Keys')
+                        yaxis_title='Keys',
+                        height=600,
+                        margin=dict(l=200, r=50, t=50, b=50))
                     
                     fig.write_html(f"{output_dir}/value_pattern_heatmap.html")
     
@@ -391,7 +569,7 @@ class Visualizer:
         <ul>
 """
         
-        # Add key findings
+        # Add key findings with formatted display
         common_keys = pattern_results.get('common_keys', [])
         hidden_identifiers = pattern_results.get('hidden_identifiers', [])
         similar_patterns = pattern_results.get('similar_patterns', [])
@@ -401,6 +579,47 @@ class Visualizer:
             <li><strong>{len(hidden_identifiers)}</strong> potential hidden identifiers detected</li>
             <li><strong>{len(similar_patterns)}</strong> similar patterns identified</li>
         </ul>
+        
+        <h3>Top Common Keys</h3>
+        <div style="background-color: #f8f9fa; padding: 15px; border-radius: 5px; margin: 10px 0;">
+"""
+        
+        # Add formatted common keys
+        if common_keys:
+            key_mapping = self._create_key_mapping(common_keys[:10])  # Top 10 keys
+            for i, (original_key, display_name) in enumerate(key_mapping.items()):
+                html += f"""
+            <div style="margin: 5px 0; padding: 5px; border-left: 3px solid #3498db;">
+                <strong>{display_name}</strong><br>
+                <small style="color: #666;">Original: {self._truncate_text(original_key, 50)}</small>
+            </div>
+"""
+        
+        html += """
+        </div>
+        
+        <h3>Top Hidden Identifiers</h3>
+        <div style="background-color: #fff3cd; padding: 15px; border-radius: 5px; margin: 10px 0;">
+"""
+        
+        # Add formatted hidden identifiers
+        if hidden_identifiers:
+            sorted_identifiers = sorted(hidden_identifiers, 
+                                       key=lambda x: x.get('confidence', 0), reverse=True)[:5]
+            for i, identifier in enumerate(sorted_identifiers):
+                value = identifier.get('value', 'N/A')
+                confidence = identifier.get('confidence', 0)
+                files_count = len(identifier.get('files', []))
+                
+                html += f"""
+            <div style="margin: 5px 0; padding: 5px; border-left: 3px solid #ffc107;">
+                <strong>ID {i+1}</strong> (Confidence: {confidence:.2f})<br>
+                <small style="color: #666;">Value: {self._format_value(value)} | Files: {files_count}</small>
+            </div>
+"""
+        
+        html += """
+        </div>
     </div>
     
     <div class="section">
